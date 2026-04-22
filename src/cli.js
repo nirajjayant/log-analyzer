@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { defaultLogsDir, discoverJsonlFiles, fileStats } from "./discover.js";
 import { extractUserPrompts } from "./parse.js";
@@ -7,8 +7,20 @@ import { clusterPrompts } from "./cluster.js";
 import { printReport } from "./report.js";
 import { writeScaffolds } from "./scaffold.js";
 
+const VERSION = "0.2.0";
+
+function checkNodeVersion() {
+  const major = Number(process.versions.node.split(".")[0]);
+  if (major < 18) {
+    console.error(`log-analyzer requires Node.js 18 or newer. You have ${process.version}.`);
+    console.error("Upgrade Node: https://nodejs.org — or run via 'npx @nirajjayant/log-analyzer' if you have a newer Node in npx.");
+    process.exit(1);
+  }
+}
+
 function parseArgs(argv) {
   const args = { path: null, out: process.cwd(), noScaffolds: false, help: false, version: false };
+  const KNOWN = new Set(["-h", "--help", "-v", "--version", "--path", "--out", "--no-scaffolds"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "-h" || a === "--help") args.help = true;
@@ -16,7 +28,15 @@ function parseArgs(argv) {
     else if (a === "--path") args.path = argv[++i];
     else if (a === "--out") args.out = argv[++i];
     else if (a === "--no-scaffolds") args.noScaffolds = true;
-    else if (!a.startsWith("-") && !args.path) args.path = a;
+    else if (a.startsWith("-")) {
+      if (!KNOWN.has(a)) {
+        console.error(`Unknown flag: ${a}`);
+        console.error("Run 'log-analyzer --help' for usage.");
+        process.exit(2);
+      }
+    } else if (!args.path) {
+      args.path = a;
+    }
   }
   return args;
 }
@@ -28,7 +48,7 @@ Usage:
   log-analyzer                 Scan ~/.claude/projects (default)
   log-analyzer --path <dir>    Scan a specific directory of JSONL files
   log-analyzer --out <dir>     Write agent-scaffold-*.md files here (default: cwd)
-  log-analyzer --no-scaffolds  Skip writing scaffold files
+  log-analyzer --no-scaffolds  Skip writing scaffold files, print report only
   log-analyzer --help          Show this help
   log-analyzer --version       Show version
 
@@ -41,14 +61,14 @@ What it does:
 }
 
 async function main() {
+  checkNodeVersion();
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     printHelp();
     return;
   }
   if (args.version) {
-    const pkg = await import("../package.json", { with: { type: "json" } }).catch(() => ({ default: { version: "0.0.0" } }));
-    console.log(pkg.default?.version ?? "0.0.0");
+    console.log(VERSION);
     return;
   }
 
@@ -61,6 +81,20 @@ async function main() {
     console.error("then come back. Or pass --path <dir> to point at a specific location.");
     process.exitCode = 1;
     return;
+  }
+
+  // Validate --out before running the analysis so a typo doesn't waste a scan.
+  const outDir = resolve(args.out);
+  if (!args.noScaffolds) {
+    try {
+      mkdirSync(outDir, { recursive: true });
+    } catch (err) {
+      console.error(`Can't write scaffolds to: ${outDir}`);
+      console.error(err.message);
+      console.error("Pass --out <existing-dir> or --no-scaffolds to skip scaffold writing.");
+      process.exitCode = 1;
+      return;
+    }
   }
 
   console.log(`Scanning ${logsDir} …`);
@@ -78,8 +112,8 @@ async function main() {
   printReport({ ...result, fileCount: files.length });
 
   if (!args.noScaffolds && result.clusters.length > 0) {
-    const written = await writeScaffolds(result.clusters, args.out);
-    console.log(`Wrote ${written.length} agent scaffold files to ${args.out}:`);
+    const written = await writeScaffolds(result.clusters, outDir);
+    console.log(`Wrote ${written.length} agent scaffold files to ${outDir}:`);
     for (const w of written) console.log(`  ${w}`);
     console.log("");
     console.log("Open any of them, read the starter agent definition, and paste it into");

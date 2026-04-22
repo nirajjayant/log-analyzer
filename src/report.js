@@ -15,7 +15,7 @@ function formatDuration(minutes) {
   return h ? `${days}d ${h}h` : `${days}d`;
 }
 
-export function printReport({ clusters, total, uncategorized, fileCount }, { color = true } = {}) {
+export function printReport({ clusters, total, uncategorized, fileCount }, { color = process.stdout.isTTY && !process.env.NO_COLOR } = {}) {
   const c = color ? (s, col) => `${col}${s}${RESET}` : (s) => s;
 
   console.log("");
@@ -34,6 +34,7 @@ export function printReport({ clusters, total, uncategorized, fileCount }, { col
   console.log("");
 
   const topN = Math.min(clusters.length, 8);
+  // Scaffolds are written for the first `topN` here so the report and the files stay in sync.
   for (let i = 0; i < topN; i++) {
     const cl = clusters[i];
     const rank = String(i + 1).padStart(2, " ");

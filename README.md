@@ -10,6 +10,12 @@ Instead of guessing which custom agents to build, this tool reads your actual Cl
 npm install -g @nirajjayant/log-analyzer
 ```
 
+Or run without installing:
+
+```bash
+npx @nirajjayant/log-analyzer
+```
+
 Requires **Node.js 18+**. On macOS: `brew install node`. On Linux: `apt-get install nodejs npm`. On Windows: [nodejs.org](https://nodejs.org).
 
 ## Use

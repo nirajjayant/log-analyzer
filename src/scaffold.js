@@ -2,31 +2,31 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 function formatExamples(examples) {
-  if (!examples.length) return "_(no examples captured)_";
+  if (!examples.length) return "_(no short conversational examples were captured in your history)_";
   return examples.map((e) => `- "${e}"`).join("\n");
 }
 
-function scaffoldMarkdown(cluster) {
-  return `# ${cluster.agentName}
+function formatAntiPatterns(items) {
+  if (!items || !items.length) return null;
+  return items.map((item) => `- ${item}`).join("\n");
+}
 
-> ${cluster.purpose}
+function formatTimeSaved(count, minutesPerTask) {
+  const totalMinutes = count * minutesPerTask;
+  const hours = totalMinutes / 60;
+  if (hours >= 24) {
+    const days = Math.round(hours / 24);
+    return `~${days} day${days === 1 ? "" : "s"}`;
+  }
+  if (hours >= 1) {
+    return `~${Math.round(hours)} hour${Math.round(hours) === 1 ? "" : "s"}`;
+  }
+  return `~${totalMinutes} minutes`;
+}
 
-## Why you want this
+const GENERIC_BODY = (name, purpose) => `You are the ${name}.
 
-Based on your Claude Code history, you've asked for this kind of help **${cluster.count} times**. Automating it could save roughly **${cluster.minutesSaved} minutes** (${Math.round(cluster.minutesSaved / 60)} hours) of repetitive work.
-
-## Example prompts that matched
-
-${formatExamples(cluster.examples)}
-
-## Starter agent definition
-
-Use this as a prompt, a custom agent, or a subagent. Edit freely — it's meant to be a starting point, not final.
-
-\`\`\`
-You are the ${cluster.agentName}.
-
-${cluster.purpose}
+${purpose}
 
 When the user gives you a task:
 1. Restate the goal in one line so you and the user are aligned.
@@ -35,18 +35,61 @@ When the user gives you a task:
 4. Report what you did and what's left, briefly.
 
 If the task is ambiguous, ask one clarifying question before starting.
-If you hit a blocker, say what's blocking and propose a path forward.
+If you hit a blocker, say what's blocking it and propose a path forward.`;
+
+function scaffoldMarkdown(cluster) {
+  const starter = cluster.starterDefinition;
+  const body = starter?.body ?? GENERIC_BODY(cluster.agentName, cluster.purpose);
+  const antiPatterns = formatAntiPatterns(starter?.antiPatterns);
+  const firstTest = starter?.firstTest;
+  const timeSaved = formatTimeSaved(cluster.count, cluster.minutesPerTask);
+
+  const sections = [];
+
+  sections.push(`# ${cluster.agentName}`);
+  sections.push(`> ${cluster.purpose}`);
+
+  sections.push(`## Starter agent definition
+
+Paste this as the system prompt of a [custom agent](https://docs.anthropic.com/en/docs/claude-code/sub-agents) in Claude Code. It's a starting point — tune as you learn what works.
+
 \`\`\`
+${body}
+\`\`\``);
 
-## Next steps
+  if (antiPatterns) {
+    sections.push(`## What this agent should NOT do
 
-1. Paste the starter definition into Claude Code as a [custom agent](https://docs.anthropic.com/en/docs/claude-code/sub-agents) or as a system prompt.
-2. Run it against your next task in this category and see if the output is useful.
-3. Tune the prompt based on what's missing or overdone.
-`;
+${antiPatterns}`);
+  }
+
+  sections.push(`## Why you want this
+
+Your Claude Code history has **${cluster.count} prompts** that look like this kind of task. Tasks in this category typically take **${cluster.minutesPerTask} minutes** of human attention each, so automating them could save you roughly **${timeSaved}** of focused work.
+
+These numbers are heuristic, not measured — treat them as a ranking signal, not a contract.`);
+
+  sections.push(`## Example prompts from your own history
+
+${formatExamples(cluster.examples)}`);
+
+  if (firstTest) {
+    sections.push(`## First test prompt
+
+${firstTest}`);
+  }
+
+  sections.push(`## Tuning notes
+
+- If the agent asks too many clarifying questions, remove step 1 of its method.
+- If it's too terse, ask it to "always include a one-paragraph rationale before the answer".
+- If it's too verbose, add "lead with the answer; justify in one line" to the prompt.
+- Revisit the prompt after ~5 real uses. The first draft is rarely the final one.`);
+
+  return sections.join("\n\n") + "\n";
 }
 
-export async function writeScaffolds(clusters, outDir, { limit = 5 } = {}) {
+export async function writeScaffolds(clusters, outDir, { limit = 8 } = {}) {
   const written = [];
   const top = clusters.slice(0, limit);
   for (const cluster of top) {

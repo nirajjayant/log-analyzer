@@ -1,6 +1,6 @@
 {
   "name": "@nirajjayant/log-analyzer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Scan your Claude Code history and discover which agents would save you the most time.",
   "keywords": [
     "claude",
@@ -22,6 +22,9 @@
   ],
   "engines": {
     "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "repository": {
     "type": "git",
