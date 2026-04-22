@@ -1,0 +1,34 @@
+{
+  "name": "@nirajjayant/log-analyzer",
+  "version": "0.1.0",
+  "description": "Scan your Claude Code history and discover which agents would save you the most time.",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "agents",
+    "analytics",
+    "cli"
+  ],
+  "license": "MIT",
+  "author": "Niraj Jayant",
+  "type": "module",
+  "bin": {
+    "log-analyzer": "src/cli.js"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nirajjayant/log-analyzer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nirajjayant/log-analyzer/issues"
+  },
+  "homepage": "https://github.com/nirajjayant/log-analyzer#readme"
+}
