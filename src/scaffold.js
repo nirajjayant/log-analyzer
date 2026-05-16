@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 function formatExamples(examples) {
@@ -97,6 +97,55 @@ export async function writeScaffolds(clusters, outDir, { limit = 8 } = {}) {
     const fullPath = join(outDir, filename);
     await writeFile(fullPath, scaffoldMarkdown(cluster), "utf8");
     written.push(fullPath);
+  }
+  return written;
+}
+
+/**
+ * Append a "## Subagents" table to a parent agent's CLAUDE.md body so the
+ * scaffold reflects the discovered hierarchy (parents reference children).
+ */
+function withSubagentIndex(agent) {
+  const body = (agent.claudeMd ?? "").trimEnd();
+  const subs = agent.subagents ?? [];
+  if (subs.length === 0) return body + "\n";
+  const rows = subs
+    .map((s) => `| ${s.displayName || s.slug} | \`${s.slug}/\` | ${s.purpose ?? ""} |`)
+    .join("\n");
+  return (
+    body +
+    `\n\n## Subagents\n\n` +
+    `| Subagent | Path | Purpose |\n|----------|------|---------|\n${rows}\n`
+  );
+}
+
+/**
+ * Write the Claude-discovered hierarchical agent tree to disk.
+ *
+ * Layout mirrors the chief-of-staff agent template:
+ *   <outDir>/agents/<slug>/CLAUDE.md
+ *   <outDir>/agents/<slug>/<subagent-slug>/CLAUDE.md
+ *
+ * Each CLAUDE.md is the rich, task-grounded body the classifier produced;
+ * parent files get a generated "## Subagents" index appended.
+ */
+export async function writeAgentTree(agents, outDir) {
+  const written = [];
+  const root = join(outDir, "agents");
+  for (const agent of agents ?? []) {
+    const agentDir = join(root, agent.slug);
+    await mkdir(agentDir, { recursive: true });
+    const parentPath = join(agentDir, "CLAUDE.md");
+    await writeFile(parentPath, withSubagentIndex(agent), "utf8");
+    written.push(parentPath);
+
+    for (const sub of agent.subagents ?? []) {
+      const subDir = join(agentDir, sub.slug);
+      await mkdir(subDir, { recursive: true });
+      const subPath = join(subDir, "CLAUDE.md");
+      await writeFile(subPath, (sub.claudeMd ?? "").trimEnd() + "\n", "utf8");
+      written.push(subPath);
+    }
   }
   return written;
 }

@@ -239,9 +239,16 @@ function maybeAddExample(bucket, text) {
 }
 
 /**
- * Aggregate prompts into per-category clusters with counts, example prompts, and ranking score.
+ * Aggregate prompts into per-category clusters with counts, example prompts,
+ * tool-usage stats, and ranking score.
+ *
+ * @param promptIterable    async/sync iterable of prompt records (from extractUserPrompts)
+ * @param opts.sessionToolUsage  optional Map of sessionKey -> { toolName: count }
+ *                               (from buildSessionToolUsage). When provided,
+ *                               each cluster gets an aggregated `toolUsage` map
+ *                               built from the sessions its prompts came from.
  */
-export async function clusterPrompts(promptIterable) {
+export async function clusterPrompts(promptIterable, { sessionToolUsage = null } = {}) {
   const buckets = new Map();
   let total = 0;
   let uncategorized = 0;
@@ -260,17 +267,37 @@ export async function clusterPrompts(promptIterable) {
         count: 0,
         examples: [],
         _seenPrefixes: new Set(),
+        _seenSessions: new Set(),
+        toolUsage: Object.create(null),
       };
       buckets.set(cat.key, bucket);
     }
     bucket.count++;
     maybeAddExample(bucket, prompt.text);
+
+    // Attribute the originating session's tool usage to this cluster, once per
+    // session so a chatty session doesn't get double-counted across its prompts.
+    if (sessionToolUsage && prompt.sessionKey != null && !bucket._seenSessions.has(prompt.sessionKey)) {
+      bucket._seenSessions.add(prompt.sessionKey);
+      const counts = sessionToolUsage.get(prompt.sessionKey);
+      if (counts) {
+        for (const [tool, n] of Object.entries(counts)) {
+          bucket.toolUsage[tool] = (bucket.toolUsage[tool] ?? 0) + n;
+        }
+      }
+    }
   }
 
   const clusters = [...buckets.values()].map((b) => {
     delete b._seenPrefixes;
+    delete b._seenSessions;
+    // Sort tool usage descending for stable, readable downstream consumption.
+    const toolUsage = Object.fromEntries(
+      Object.entries(b.toolUsage).sort((x, y) => y[1] - x[1])
+    );
     return {
       ...b,
+      toolUsage,
       minutesSaved: b.count * b.minutesPerTask,
       starterDefinition: STARTERS[b.key] ?? null,
     };

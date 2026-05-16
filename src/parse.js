@@ -97,6 +97,72 @@ function isNoise(text) {
   return false;
 }
 
+// Built-in Claude Code tool names we care about for permission recommendations.
+// Anything else (MCP tools, etc.) is still counted under its raw name.
+const KNOWN_TOOLS = new Set([
+  "Read",
+  "Edit",
+  "Write",
+  "Bash",
+  "Glob",
+  "Grep",
+  "WebSearch",
+  "WebFetch",
+  "Task",
+  "Agent",
+  "NotebookEdit",
+  "TodoWrite",
+]);
+
+/**
+ * Pull tool_use block names out of an assistant message's content.
+ * Assistant content is an array of blocks; tool calls have type "tool_use".
+ */
+function extractToolNames(content) {
+  if (!Array.isArray(content)) return [];
+  const names = [];
+  for (const block of content) {
+    if (block && block.type === "tool_use" && typeof block.name === "string") {
+      names.push(block.name);
+    }
+  }
+  return names;
+}
+
+/**
+ * Walk every JSONL file and build a map of sessionId -> { tool: count }.
+ *
+ * This is a separate pass from prompt extraction because tool usage lives on
+ * assistant messages, not user messages, and we want to attribute it back to
+ * the session a clustered prompt came from.
+ */
+export async function buildSessionToolUsage(files) {
+  const bySession = new Map();
+  for (const file of files) {
+    for await (const event of readJsonl(file)) {
+      if (event?.type !== "assistant") continue;
+      const message = event.message;
+      if (!message || message.role !== "assistant") continue;
+      const names = extractToolNames(message.content);
+      if (names.length === 0) continue;
+      // Fall back to the file path when sessionId is missing so usage is still
+      // attributable (extractUserPrompts uses the same fallback below).
+      const key = event.sessionId ?? file;
+      let counts = bySession.get(key);
+      if (!counts) {
+        counts = Object.create(null);
+        bySession.set(key, counts);
+      }
+      for (const name of names) {
+        counts[name] = (counts[name] ?? 0) + 1;
+      }
+    }
+  }
+  return bySession;
+}
+
+export { KNOWN_TOOLS };
+
 /**
  * Walk every JSONL file and yield one record per human user prompt.
  */
@@ -113,6 +179,8 @@ export async function* extractUserPrompts(files) {
       yield {
         text,
         timestamp: event.timestamp ?? null,
+        // Mirror buildSessionToolUsage's key: sessionId, else the file path.
+        sessionKey: event.sessionId ?? file,
         sessionId: event.sessionId ?? null,
         cwd: event.cwd ?? null,
         file,

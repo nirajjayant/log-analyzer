@@ -54,3 +54,58 @@ export function printReport({ clusters, total, uncategorized, fileCount }, { col
     console.log("");
   }
 }
+
+/**
+ * Render the Claude-discovered hierarchical agent tree to the terminal using
+ * ├──/│ box-drawing, with prompt counts and percentages. Used by the AI path
+ * instead of the flat numbered list above.
+ */
+export function printAgentTree(
+  { agents, total, fileCount },
+  { color = process.stdout.isTTY && !process.env.NO_COLOR } = {}
+) {
+  const c = color ? (s, col) => `${col}${s}${RESET}` : (s) => s;
+
+  const pct = (n) => (total > 0 ? `${((n / total) * 100).toFixed(1)}%` : "0%");
+
+  console.log("");
+  console.log(c(`Analyzed ${total} user prompts across ${fileCount} Claude Code sessions.`, BOLD));
+  console.log("");
+
+  if (!agents || agents.length === 0) {
+    console.log("Claude found no clear agent opportunities yet. Keep using Claude Code and try again.");
+    return;
+  }
+
+  console.log(c("Claude-discovered agent fleet — by share of your work:", BOLD));
+  console.log("");
+
+  const sorted = [...agents].sort((a, b) => (b.promptCount ?? 0) - (a.promptCount ?? 0));
+
+  sorted.forEach((agent, i) => {
+    const isLastAgent = i === sorted.length - 1;
+    const branch = isLastAgent ? "└── " : "├── ";
+    const childPrefix = isLastAgent ? "    " : "│   ";
+    const count = agent.promptCount ?? 0;
+    console.log(
+      `${branch}${c(agent.displayName || agent.slug, CYAN)} ${c(`(${count} prompts · ${pct(count)})`, GREEN)}`
+    );
+    if (agent.purpose) {
+      console.log(`${childPrefix}${c(agent.purpose, DIM)}`);
+    }
+    const subs = agent.subagents ?? [];
+    subs.forEach((sub, j) => {
+      const isLastSub = j === subs.length - 1;
+      const subBranch = isLastSub ? "└── " : "├── ";
+      const sc = sub.promptCount ?? 0;
+      console.log(
+        `${childPrefix}${subBranch}${c(sub.displayName || sub.slug, CYAN)} ${c(`(${sc} prompts · ${pct(sc)})`, GREEN)}`
+      );
+      if (sub.purpose) {
+        const subChildPrefix = childPrefix + (isLastSub ? "    " : "│   ");
+        console.log(`${subChildPrefix}${c(sub.purpose, DIM)}`);
+      }
+    });
+  });
+  console.log("");
+}

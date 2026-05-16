@@ -2,10 +2,11 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { defaultLogsDir, discoverJsonlFiles, fileStats } from "./discover.js";
-import { extractUserPrompts } from "./parse.js";
+import { extractUserPrompts, buildSessionToolUsage } from "./parse.js";
 import { clusterPrompts } from "./cluster.js";
-import { printReport } from "./report.js";
-import { writeScaffolds } from "./scaffold.js";
+import { printReport, printAgentTree } from "./report.js";
+import { writeScaffolds, writeAgentTree } from "./scaffold.js";
+import { classifyClusters, CLASSIFIER_MODEL } from "./classifier.js";
 
 const VERSION = "0.2.0";
 
@@ -108,7 +109,47 @@ async function main() {
   const mb = (stats.totalBytes / 1024 / 1024).toFixed(1);
   console.log(`Found ${files.length} session files (${mb} MB).`);
 
-  const result = await clusterPrompts(extractUserPrompts(files));
+  // Tool usage lives on assistant messages; build it once so clusters can
+  // attribute it back to the sessions their prompts came from.
+  const sessionToolUsage = await buildSessionToolUsage(files);
+  const result = await clusterPrompts(extractUserPrompts(files), { sessionToolUsage });
+
+  const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
+
+  if (hasApiKey && result.clusters.length > 0) {
+    // ── Pro-tier path: Claude-powered agent discovery ──
+    console.log(`Asking Claude (${CLASSIFIER_MODEL}) to discover your agent fleet …`);
+    let tree;
+    try {
+      tree = await classifyClusters(result.clusters);
+    } catch (err) {
+      console.error(`Claude classification failed (${err.message}).`);
+      console.error("Falling back to basic keyword categorization.");
+      tree = null;
+    }
+
+    if (tree) {
+      printAgentTree({ agents: tree.agents, total: result.total, fileCount: files.length });
+
+      if (!args.noScaffolds && tree.agents.length > 0) {
+        const written = await writeAgentTree(tree.agents, outDir);
+        console.log(`Wrote ${written.length} agent CLAUDE.md scaffolds under ${join(outDir, "agents")}:`);
+        for (const w of written) console.log(`  ${w}`);
+        console.log("");
+        console.log("Each is a paste-ready agent definition grounded in your real tasks.");
+        console.log("Drop the agents/ tree into your project and start using them today.");
+      }
+      return;
+    }
+    // tree === null → fall through to basic mode below.
+  } else if (!hasApiKey) {
+    console.log(
+      "No ANTHROPIC_API_KEY found. Using basic keyword categorization. " +
+        "Set ANTHROPIC_API_KEY for AI-powered agent discovery."
+    );
+  }
+
+  // ── Basic mode: offline hardcoded keyword fallback (no API key / AI failure) ──
   printReport({ ...result, fileCount: files.length });
 
   if (!args.noScaffolds && result.clusters.length > 0) {
